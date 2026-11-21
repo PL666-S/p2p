@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Web P2P 全能传输 (文字+文件)</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22         viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔗</text></svg>">
+    <style>
+        :root {
+            --primary: #007bff;
+            --success: #28a745;
+            --danger: #dc3545;
+            --bg: #121212;
+            --card: #1e1e1e;
+            --text: #e0e0e0;
+            --border: #333;
+            --input-bg: #2c2c2c;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            padding: 20px;
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        }
+        .container {
+            max-width: 700px;
+            margin: 0 auto;
+            background: var(--card);
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.6);
+        }
+        h1 { text-align: center; color: var(--primary); margin-bottom: 10px; font-size: 1.5rem; }
+        
+        /* 状态栏 */
+        .status {
+            text-align: center;
+            padding: 10px;
+            background: var(--input-bg);
+            border-radius: 6px;
+            margin-bottom: 20px;
+            font-weight: bold;
+            color: #aaa;
+        }
+        .status.connected { color: var(--success); border: 1px solid var(--success); }
+
+        /* 连接步骤区域 */
+        .step { margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid var(--border); }
+        .step:last-child { border-bottom: none; }
+        label { display: block; margin: 8px 0 5px; font-weight: 600; color: #fff; }
+        textarea {
+            width: 100%;
+            background: var(--input-bg);
+            color: #0f0; /* 终端绿字体，方便复制 */
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 12px;
+            resize: vertical;
+        }
+        button {
+            width: 100%;
+            padding: 10px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-top: 8px;
+            transition: opacity 0.2s;
+        }
+        button:hover { opacity: 0.9; }
+        button:disabled { background: #555; cursor: not-allowed; }
+
+        /* 功能区 (文件 + 聊天) */
+        #tools-section { display: none; margin-top: 20px; border-top: 1px solid var(--border); padding-top: 20px; }
+        
+        /* 文件区域 */
+        #file-area { margin-bottom: 30px; }
+        #file-input { display: none; }
+        #select-file-btn { background: var(--success); margin-top: 0; }
+        #progress-bar { height: 6px; background: #333; border-radius: 3px; margin-top: 10px; overflow: hidden; display: none; }
+        #progress-fill { height: 100%; background: var(--primary); width: 0%; transition: width 0.2s; }
+        .file-info { margin-top: 10px; font-size: 13px; color: #aaa; }
+
+        /* 聊天区域 */
+        #chat-area { display: flex; flex-direction: column; height: 400px; }
+        #messages {
+            flex: 1;
+            overflow-y: auto;
+            border: 1px solid var(--border);
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 6px;
+            background: #181818;
+        }
+        .msg-item { margin-bottom: 8px; padding: 8px 12px; border-radius: 8px; max-width: 80%; word-wrap: break-word; }
+        .msg-sent { background: rgba(0, 123, 255, 0.2); align-self: flex-end; margin-left: auto; border: 1px solid rgba(0, 123, 255, 0.3); }
+        .msg-received { background: rgba(40, 167, 69, 0.2); align-self: flex-start; margin-right: auto; border: 1px solid rgba(40, 167, 69, 0.3); }
+        .chat-input-group { display: flex; gap: 10px; }
+        #messageInput {
+            flex: 1;
+            padding: 10px;
+            background: var(--input-bg);
+            border: 1px solid var(--border);
+            color: white;
+            border-radius: 6px;
+        }
+        #sendMessageBtn { width: 100px; margin-top: 0; }
+
+        /* 弹窗 */
+        #receive-modal {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+        }
+        .modal-content {
+            background: var(--card);
+            padding: 25px;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 400px;
+            text-align: center;
+            border: 1px solid var(--primary);
+            box-shadow: 0 0 20px rgba(0,123,255,0.2);
+        }
+        .modal-buttons { margin-top: 20px; display: flex; gap: 10px; }
+        .accept-btn { background: var(--success); }
+        .reject-btn { background: var(--danger); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Web P2P 全能传输</h1>
+        <div class="status" id="status">状态: 等待连接...</div>
+
+        <!-- 连接步骤 -->
+        <div class="step">
+            <label>1. A：创建邀请</label>
+            <button id="create-offer">生成 Offer</button>
+            <textarea id="offer-output" readonly placeholder="邀请代码将显示在这里..."></textarea>
+        </div>
+        <div class="step">
+            <label>2. B：粘贴邀请并生成应答</label>
+            <textarea id="offer-input" placeholder="粘贴 A 的邀请..."></textarea>
+            <button id="create-answer">生成 Answer</button>
+            <textarea id="answer-output" readonly placeholder="应答代码将显示在这里..."></textarea>
+        </div>
+        <div class="step">
+            <label>3. A：粘贴应答完成连接</label>
+            <textarea id="answer-input" placeholder="粘贴 B 的应答..."></textarea>
+            <button id="set-answer">确认连接</button>
+        </div>
+
+        <!-- 功能区域 (连接后显示) -->
+        <div id="tools-section">
+            <!-- 文件传输 -->
+            <div id="file-area">
+                <label>📁 文件传输</label>
+                <input type="file" id="file-input" />
+                <button id="select-file-btn">选择文件发送</button>
+                <div class="file-info" id="file-info"></div>
+                <div id="progress-bar"><div id="progress-fill"></div></div>
+            </div>
+
+            <!-- 文字聊天 -->
+            <div id="chat-area">
+                <label>💬 即时消息</label>
+                <div id="messages"></div>
+                <div class="chat-input-group">
+                    <input type="text" id="messageInput" placeholder="输入消息..." />
+                    <button id="sendMessageBtn">发送</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 接收文件确认弹窗 -->
+    <div id="receive-modal">
+        <div class="modal-content">
+            <h3>📥 收到文件请求</h3>
+            <p id="incoming-file-name" style="color:var(--primary); font-weight:bold;"></p>
+            <p id="incoming-file-size"></p>
+            <div class="modal-buttons">
+                <button class="accept-btn" id="accept-file">接受</button>
+                <button class="reject-btn" id="reject-file">拒绝</button>
+            </div>
+        </div>
+    </div>
+
+<script>
+    let pc;
+    let dataChannel;
+    let pendingFile = null; // 用于存储正在传输或接收的文件状态
+
+    // 初始化 PeerConnection
+    function initPeerConnection() {
+        const config = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+        pc = new RTCPeerConnection(config);
+
+        pc.ondatachannel = (event) => {
+            dataChannel = event.channel;
+            setupDataChannel();
+        };
+
+        pc.onicecandidate = (event) => {
+            if (event.candidate === null) {
+                console.log('ICE 收集完成');
+            }
+        };
+    }
+
+    function setupDataChannel() {
+        if (!dataChannel) return;
+        
+        dataChannel.binaryType = 'arraybuffer';
+        
+        dataChannel.onopen = () => {
+            document.getElementById('status').textContent = '✅ 连接已建立 (P2P)';
+            document.getElementById('status').className = 'status connected';
+            document.getElementById('tools-section').style.display = 'block';
+        };
+
+        dataChannel.onclose = () => {
+            document.getElementById('status').textContent = '连接已断开';
+            document.getElementById('tools-section').style.display = 'none';
+        };
+
+        dataChannel.onmessage = (event) => {
+            const data = event.data;
+
+            // 1. 处理文本消息 (字符串)
+            if (typeof data === 'string') {
+                try {
+                    const msg = JSON.parse(data);
+                    
+                    // 文件控制信令
+                    if (msg.type === 'file-offer') {
+                        showReceiveDialog(msg.fileInfo);
+                        return;
+                    }
+                    if (msg.type === 'file-accept') {
+                        startSendingFile();
+                        return;
+                    }
+                    if (msg.type === 'file-reject') {
+                        alert('对方拒绝接收文件');
+                        resetFileState();
+                        return;
+                    }
+                    // 聊天消息
+                    if (msg.type === 'chat-message') {
+                        appendMessage(msg.content, 'received');
+                        return;
+                    }
+                } catch (e) {
+                    console.error("消息解析错误", e);
+                }
+            }
+
+            // 2. 处理文件二进制数据
+            if (pendingFile && typeof data !== 'string') {
+                handleFileChunk(data);
+            }
+        };
+    }
+
+    // --- 聊天逻辑 ---
+    function sendMessage() {
+        const input = document.getElementById('messageInput');
+        const text = input.value.trim();
+        if (!text) return;
+
+        if (dataChannel && dataChannel.readyState === 'open') {
+            const msg = JSON.stringify({ type: 'chat-message', content: text });
+            dataChannel.send(msg);
+            appendMessage(text, 'sent');
+            input.value = '';
+        }
+    }
+
+    function appendMessage(text, type) {
+        const div = document.createElement('div');
+        div.className = `msg-item msg-${type}`;
+        div.textContent = text;
+        const container = document.getElementById('messages');
+        container.appendChild(div);
+        container.scrollTop = container.scrollHeight;
+    }
+
+    // --- 文件逻辑 ---
+    function showReceiveDialog(fileInfo) {
+        document.getElementById('incoming-file-name').textContent = `文件: ${fileInfo.name}`;
+        document.getElementById('incoming-file-size').textContent = `大小: ${formatBytes(fileInfo.size)}`;
+        const modal = document.getElementById('receive-modal');
+        modal.style.display = 'flex';
+
+        document.getElementById('accept-file').onclick = () => {
+            modal.style.display = 'none';
+            dataChannel.send(JSON.stringify({ type: 'file-accept' }));
+            pendingFile = { fileInfo, receivedChunks: [] };
+        };
+        document.getElementById('reject-file').onclick = () => {
+            modal.style.display = 'none';
+            dataChannel.send(JSON.stringify({ type: 'file-reject' }));
+        };
+    }
+
+    function handleFileChunk(buffer) {
+        if (!pendingFile) return;
+        pendingFile.receivedChunks.push(buffer);
+        
+        const totalReceived = pendingFile.receivedChunks.reduce((sum, buf) => sum + buf.byteLength, 0);
+        
+        // 简单进度更新 (仅接收端)
+        if (totalReceived >= pendingFile.fileInfo.size) {
+            const finalBlob = new Blob(pendingFile.receivedChunks, { type: pendingFile.fileInfo.type });
+            const url = URL.createObjectURL(finalBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = pendingFile.fileInfo.name;
+            a.click();
+            URL.revokeObjectURL(url);
+            alert(`✅ ${pendingFile.fileInfo.name} 下载完成！`);
+            pendingFile = null;
+        }
+    }
+
+    function startSendingFile() {
+        if (!pendingFile) return;
+        const { file, offset, total } = pendingFile;
+        const chunkSize = 64 * 1024; // 64KB
+        const slice = file.slice(offset, offset + chunkSize);
+        const reader = new FileReader();
+
+        reader.onload = (e) => {
+            dataChannel.send(e.target.result);
+            const newOffset = offset + chunkSize;
+            const progress = Math.min(100, Math.floor((newOffset / total) * 100));
+            
+            document.getElementById('progress-bar').style.display = 'block';
+            document.getElementById('progress-fill').style.width = progress + '%';
+
+            if (newOffset < total) {
+                pendingFile.offset = newOffset;
+                // 使用 setTimeout 防止阻塞 UI
+                setTimeout(startSendingFile, 0); 
+            } else {
+                setTimeout(() => {
+                    document.getElementById('progress-bar').style.display = 'none';
+                    document.getElementById('file-info').textContent = '发送完成';
+                }, 1000);
+                resetFileState();
+            }
+        };
+        reader.readAsArrayBuffer(slice);
+    }
+
+    function resetFileState() {
+        pendingFile = null;
+    }
+
+    // --- 工具函数 ---
+    function formatBytes(bytes, decimals = 2) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const dm = decimals < 0 ? 0 : decimals;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    }
+
+    // --- 事件监听 ---
+    document.addEventListener('DOMContentLoaded', () => {
+        // 1. 创建 Offer
+        document.getElementById('create-offer').onclick = async () => {
+            initPeerConnection();
+            dataChannel = pc.createDataChannel('p2p-channel');
+            setupDataChannel();
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            // 等待 ICE 收集 (简单延时，实际项目应监听 icegatheringstatechange)
+            setTimeout(() => {
+                document.getElementById('offer-output').value = JSON.stringify(pc.localDescription);
+            }, 1000);
+        };
+
+        // 2. 创建 Answer
+        document.getElementById('create-answer').onclick = async () => {
+            const offerStr = document.getElementById('offer-input').value;
+            if (!offerStr) return alert('请先粘贴 Offer！');
+            
+            initPeerConnection();
+            // 监听 datachannel 的逻辑在 init 里已经通过 ondatachannel 处理
+            await pc.setRemoteDescription(JSON.parse(offerStr));
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            
+            setTimeout(() => {
+                document.getElementById('answer-output').value = JSON.stringify(pc.localDescription);
+            }, 1000);
+        };
+
+        // 3. 确认 Answer
+        document.getElementById('set-answer').onclick = async () => {
+            const answerStr = document.getElementById('answer-input').value;
+            if (!answerStr) return alert('请先粘贴 Answer！');
+            await pc.setRemoteDescription(JSON.parse(answerStr));
+        };
+
+        // 发送文件按钮
+        document.getElementById('select-file-btn').onclick = () => {
+            document.getElementById('file-input').click();
+        };
+
+        document.getElementById('file-input').onchange = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            if (!dataChannel || dataChannel.readyState !== 'open') return alert('连接未建立');
+
+            const fileInfo = { name: file.name, size: file.size, type: file.type };
+            // 发送文件元数据
+            dataChannel.send(JSON.stringify({ type: 'file-offer', fileInfo }));
+            
+            pendingFile = { file, fileInfo, offset: 0, total: file.size };
+            document.getElementById('file-info').textContent = `等待对方接受: ${file.name}`;
+        };
+
+        // 发送消息按钮
+        document.getElementById('sendMessageBtn').onclick = sendMessage;
+        document.getElementById('messageInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+    });
+</script>
+</body>
+</html>
